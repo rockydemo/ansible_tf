@@ -1,0 +1,76 @@
+- name: Execute SQL Query on Azure SQL Database
+  hosts: localhost
+  # vars_prompt:
+    # - name: tf_name
+    #   prompt: "Enter Primary Key (name)"
+    #   private: false
+    # - name: git_repo
+    #   prompt: "Enter Git repository URL"
+    #   default: "https://github.com/learningcicd/tf-ansible.git"
+  tasks:
+          #- name: Clone Git Repository
+          #command: git clone -q --depth 1 --no-tags --shallow-submodules https://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@github.com/learningcicd/tf-ansible.git tf_ansible
+
+    - name: Run SQL Query
+      command: >
+        sqlcmd
+        -S mytestsrvr.database.windows.net
+        -d mydb 
+        -U admindb 
+        -P Lotus@3440 
+        -Q 'SELECT * FROM kv_db'
+        -W 
+        -o sql_output.txt
+    
+    - name: Format the SQL Output
+      # Remove the 2nd, last and empty lines from the sql output as we don't require them
+      command: sed -i -e '2d;$d' -e '/^$/d' sql_output.txt
+
+    - name: Create kv-main.tf file
+      shell: |-
+        touch tf_ansible/kv-main.tf
+        NO_OF_COLUMNS=`head -1 sql_output.txt | wc -w`
+        COLUMN=`head -1 sql_output.txt`
+        sed -i -e '1d' sql_output.txt
+        NO_OF_ROWS=`cat sql_output.txt | wc -l`
+
+        for i in `seq ${NO_OF_ROWS}`; do
+          ROW=`sed -n "${i}p" sql_output.txt`
+
+          for i in `seq ${NO_OF_COLUMNS}`; do
+            VAR=`echo "${COLUMN}\n${ROW}" | awk -v num=$i '{print $num}' | head -1`
+            VAL=`echo "${COLUMN}\n${ROW}" | awk -v num=$i '{print $num}' | tail -1`
+            export ${VAR}=${VAL}
+          done
+
+          sed -e "s/\${name}/${name}/g" \
+            -e "s/\${location}/${location}/g" \
+            -e "s/\${resource_group_name}/${resource_group_name}/g" \
+            -e "s/\${tenant_id}/${tenant_id}/g" \
+            -e "s/\${soft_delete_retention_days}/${soft_delete_retention_days}/g" \
+            -e "s/\${sku_name}/${sku_name}/g" \
+            -e "s/\${object_id}/${object_id}/g" \
+            -e "s/\${key_permissions}/${key_permissions}/g" \
+            -e "s/\${secret_permissions}/${secret_permissions}/g" \
+            template/main.tf >> tf_ansible/kv-main.tf
+
+          echo >> tf_ansible/kv-main.tf
+        done
+        
+        rm sql_output.txt
+
+    - name: Format Terraform Code
+      command: terraform -chdir=tf_ansible fmt
+    
+        #- name: Create Terraform Workspace
+        #command: terraform -chdir=tf_ansible workspace select -or-create=true {{ tf_name }}
+
+        #- name: Terraform Init
+        #command: terraform -chdir=tf_ansible init
+
+        #- name: Terraform Plan
+        #command: terraform -chdir=tf_ansible plan
+
+        #- name: Terraform Apply
+        #command: terraform -chdir=tf_ansible apply
+
